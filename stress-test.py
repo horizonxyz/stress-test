@@ -29,7 +29,7 @@ db = mysql.connector.connect(
 cursor = db.cursor()
 
 # Pack the data into a binary format
-NUM_CLIENTS = 5
+NUM_CLIENTS = 500
 
 # Read packet table from JSON file
 with open('packet_table.json', 'r') as f:
@@ -149,9 +149,9 @@ def send_packets(client):
 def receive_messages(client):
     current_position = [ctypes.c_uint16(0), ctypes.c_uint16(0), ctypes.c_uint8(0)]
     buffer_size = 1024
-    packets = []
     while True:
         try:
+            packets = []
             data = client.recv(buffer_size)
             if not data:
                 break
@@ -184,6 +184,21 @@ def receive_messages(client):
             # print(f'Adding message to queue: {message}')
             message_queue.put(packet)
 
+def run_ai_logic(current_position):
+    while True:
+        # AI logic goes here
+        data = CZ_REQUEST_MOVE()
+        data._packet_id = 0x035f
+        x = ctypes.c_uint16(current_position[0].value + random.randint(-10, 10))
+        y = ctypes.c_uint16(current_position[1].value + random.randint(-10, 10))
+        packed_pos = pack_position(x, y, ctypes.c_uint8(current_position[2].value))
+        data._packed_pos = bytes(packed_pos)
+        move_data = ctypes.string_at(ctypes.addressof(data), ctypes.sizeof(data))
+        check_packed_data_size(data, move_data)
+        send_queue.put(move_data)
+        current_position = [x, y, current_position[2]] 
+        time.sleep(10)
+        
 # Process messages from the queue
 def process_messages():
     while True:
@@ -200,17 +215,8 @@ def process_messages():
                 p = unpack_position(data._packed_pos)
                 current_position = [ctypes.c_uint16(p[0]), ctypes.c_uint16(p[1]), ctypes.c_uint8(p[2])]
                 print(f"X: {p[0]}, Y: {p[1]}, Dir: {p[2]}")
-                while True:
-                    data = CZ_REQUEST_MOVE()
-                    data._packet_id = 0x035f
-                    x = ctypes.c_uint16(current_position[0].value + random.randint(-10, 10))
-                    y = ctypes.c_uint16(current_position[1].value + random.randint(-10, 10))
-                    packed_pos = pack_position(x, y, ctypes.c_uint8(current_position[2].value))
-                    data._packed_pos = bytes(packed_pos)
-                    move_data = ctypes.string_at(ctypes.addressof(data), ctypes.sizeof(data))
-                    check_packed_data_size(data, move_data)
-                    send_queue.put(move_data)
-                    current_position = [x, y, current_position[2]] 
+                ai_thread = threading.Thread(target=run_ai_logic, args=(current_position,))
+                ai_thread.start()
         except queue.Empty:
             # Queue is empty, do something else
             pass
